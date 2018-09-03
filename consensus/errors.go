@@ -34,4 +34,10 @@ var (
 	// ErrInvalidNumber is returned if a block's number doesn't equal it's parent's
 	// plus one.
 	ErrInvalidNumber = errors.New("invalid block number")
+
+	// ErrNonPowMode is returned if a POW work submited to a non-POW network.
+	ErrNonPowMode = errors.New("current network does not use POW")
+
+	// ErrProcessExiting is returned if a POW work submited when the process is exiting.
+	ErrProcessExiting = errors.New("the process is exiting")
 )

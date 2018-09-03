@@ -21,6 +21,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
@@ -69,24 +70,65 @@ func (api *API) SubmitWork(nonce types.BlockNonce, hash, digest common.Hash) boo
 		return false
 	}
 
-	var errc = make(chan error, 1)
+	var errorCh = make(chan error, 1)
+	var blockHashCh = make(chan common.Hash, 1)
 
 	select {
 	case api.ethash.submitWorkCh <- &mineResult{
-		nonce:     nonce,
-		mixDigest: digest,
-		hash:      hash,
-		errc:      errc,
+		nonce:       nonce,
+		mixDigest:   digest,
+		hash:        hash,
+		errorCh:     errorCh,
+		blockHashCh: blockHashCh,
 	}:
 	case <-api.ethash.exitCh:
 		return false
 	}
 
-	err := <-errc
-	return err == nil
+	select {
+	case <-errorCh:
+		return false
+	case <-blockHashCh:
+		return true
+	}
 }
 
-// SubmitHashrate can be used for remote miners to submit their hash rate.
+// SubmitWorkDetail can be used by external miner to submit their POW solution.
+// It returns an indication and a block hash if the work was accepted.
+// If the work was rejected, a error message will be returned.
+// The three member of its result:
+//		success        bool
+//		errorMessage   string or null
+//		blockHash      string or null
+func (api *API) SubmitWorkDetail(nonce types.BlockNonce, hash, digest common.Hash) [3]interface{} {
+	if api.ethash.config.PowMode != ModeNormal && api.ethash.config.PowMode != ModeTest {
+		return [3]interface{}{false, consensus.ErrNonPowMode.Error(), nil}
+	}
+
+	var errorCh = make(chan error, 1)
+	var blockHashCh = make(chan common.Hash, 1)
+
+	select {
+	case api.ethash.submitWorkCh <- &mineResult{
+		nonce:       nonce,
+		mixDigest:   digest,
+		hash:        hash,
+		errorCh:     errorCh,
+		blockHashCh: blockHashCh,
+	}:
+	case <-api.ethash.exitCh:
+		return [3]interface{}{false, consensus.ErrProcessExiting.Error(), nil}
+	}
+
+	select {
+	case err := <-errorCh:
+		return [3]interface{}{false, err.Error(), nil}
+	case blockHash := <-blockHashCh:
+		return [3]interface{}{true, nil, blockHash}
+	}
+}
+
+// SubmitHashRate can be used for remote miners to submit their hash rate.
 // This enables the node to report the combined hash rate of all miners
 // which submit work through this node.
 //
