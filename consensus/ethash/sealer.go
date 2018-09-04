@@ -29,6 +29,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common/hexutil"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -193,7 +195,7 @@ func (ethash *Ethash) remote(notify []string, noverify bool) {
 
 		results      chan<- *types.Block
 		currentBlock *types.Block
-		currentWork  [3]string
+		currentWork  [4]string
 
 		notifyTransport = &http.Transport{}
 		notifyClient    = &http.Client{
@@ -240,6 +242,7 @@ func (ethash *Ethash) remote(notify []string, noverify bool) {
 		currentWork[0] = hash.Hex()
 		currentWork[1] = common.BytesToHash(SeedHash(block.NumberU64())).Hex()
 		currentWork[2] = common.BytesToHash(new(big.Int).Div(two256, block.Difficulty()).Bytes()).Hex()
+		currentWork[3] = hexutil.EncodeUint64(block.NumberU64())
 
 		// Trace the seal work fetched by remote sealer.
 		currentBlock = block
