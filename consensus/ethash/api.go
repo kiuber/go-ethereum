@@ -21,7 +21,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
@@ -103,7 +102,7 @@ func (api *API) SubmitWork(nonce types.BlockNonce, hash, digest common.Hash) boo
 //		blockHash      string or null
 func (api *API) SubmitWorkDetail(nonce types.BlockNonce, hash, digest common.Hash) [3]interface{} {
 	if api.ethash.config.PowMode != ModeNormal && api.ethash.config.PowMode != ModeTest {
-		return [3]interface{}{false, consensus.ErrNonPowMode.Error(), nil}
+		return [3]interface{}{false, "not supported", nil}
 	}
 
 	var errorCh = make(chan error, 1)
@@ -118,7 +117,7 @@ func (api *API) SubmitWorkDetail(nonce types.BlockNonce, hash, digest common.Has
 		blockHashCh: blockHashCh,
 	}:
 	case <-api.ethash.exitCh:
-		return [3]interface{}{false, consensus.ErrProcessExiting.Error(), nil}
+		return [3]interface{}{false, errEthashStopped.Error(), nil}
 	}
 
 	select {
