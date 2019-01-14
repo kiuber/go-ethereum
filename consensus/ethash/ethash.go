@@ -417,7 +417,8 @@ type mineResult struct {
 	mixDigest common.Hash
 	hash      common.Hash
 
-	errc chan error
+	blockHashCh chan common.Hash
+	errorCh     chan error
 }
 
 // hashrate wraps the hash rate submitted by the remote sealer.
