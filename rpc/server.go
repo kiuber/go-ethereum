@@ -312,6 +312,14 @@ func (s *Server) handle(ctx context.Context, codec ServerCodec, req *serverReque
 	}
 	if req.callb.errPos >= 0 { // test if method returned an error
 		if !reply[req.callb.errPos].IsNil() {
+			if e, ok := reply[req.callb.errPos].Interface().(ErrorWithInfo); ok {
+				res := codec.CreateErrorResponseWithInfo(&req.id, e, e.ErrorInfo())
+				return res, nil
+			}
+			if e, ok := reply[req.callb.errPos].Interface().(Error); ok {
+				res := codec.CreateErrorResponse(&req.id, e)
+				return res, nil
+			}
 			e := reply[req.callb.errPos].Interface().(error)
 			res := codec.CreateErrorResponse(&req.id, &callbackError{e.Error()})
 			return res, nil
@@ -383,6 +391,12 @@ func (s *Server) readRequest(codec ServerCodec) ([]*serverRequest, bool, Error) 
 	for i, r := range reqs {
 		var ok bool
 		var svc *service
+
+		// Compatible with parity_submitWorkDetail.
+		// About the RPC: <https://github.com/paritytech/parity-ethereum/pull/9404>
+		if r.service == "parity" && r.method == "submitWorkDetail" {
+			r.service = "eth"
+		}
 
 		if r.err != nil {
 			requests[i] = &serverRequest{id: r.id, err: r.err}
