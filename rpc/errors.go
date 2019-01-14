@@ -64,3 +64,12 @@ type shutdownError struct{}
 func (e *shutdownError) ErrorCode() int { return -32000 }
 
 func (e *shutdownError) Error() string { return "server is shutting down" }
+
+// CannotSubmitWorkError cannot submit a POW work
+type CannotSubmitWorkError struct{ data string }
+
+func (e *CannotSubmitWorkError) ErrorCode() int { return -32005 }
+
+func (e *CannotSubmitWorkError) Error() string { return "Cannot submit work." }
+
+func (e *CannotSubmitWorkError) ErrorData() interface{} { return e.data }
