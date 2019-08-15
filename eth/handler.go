@@ -63,6 +63,8 @@ func errResp(code errCode, format string, v ...interface{}) error {
 	return fmt.Errorf("%v - %v", code, fmt.Sprintf(format, v...))
 }
 
+type isMiningFn func() bool
+
 type ProtocolManager struct {
 	networkID  uint64
 	forkFilter forkid.Filter // Fork ID filter, constant across the lifetime of the node
@@ -94,6 +96,8 @@ type ProtocolManager struct {
 	quitSync    chan struct{}
 	noMorePeers chan struct{}
 
+	isMining isMiningFn
+
 	// wait group is used for graceful shutdowns during downloading
 	// and processing
 	wg sync.WaitGroup
@@ -101,7 +105,7 @@ type ProtocolManager struct {
 
 // NewProtocolManager returns a new Ethereum sub protocol manager. The Ethereum sub protocol manages peers capable
 // with the Ethereum network.
-func NewProtocolManager(config *params.ChainConfig, checkpoint *params.TrustedCheckpoint, mode downloader.SyncMode, networkID uint64, mux *event.TypeMux, txpool txPool, engine consensus.Engine, blockchain *core.BlockChain, chaindb ethdb.Database, cacheLimit int, whitelist map[uint64]common.Hash) (*ProtocolManager, error) {
+func NewProtocolManager(config *params.ChainConfig, checkpoint *params.TrustedCheckpoint, mode downloader.SyncMode, networkID uint64, mux *event.TypeMux, txpool txPool, engine consensus.Engine, blockchain *core.BlockChain, chaindb ethdb.Database, cacheLimit int, whitelist map[uint64]common.Hash, isMining isMiningFn) (*ProtocolManager, error) {
 	// Create the protocol manager with the base fields
 	manager := &ProtocolManager{
 		networkID:   networkID,
@@ -115,6 +119,7 @@ func NewProtocolManager(config *params.ChainConfig, checkpoint *params.TrustedCh
 		noMorePeers: make(chan struct{}),
 		txsyncCh:    make(chan *txsync),
 		quitSync:    make(chan struct{}),
+		isMining:    isMining,
 	}
 	if mode == downloader.FullSync {
 		// The database seems empty as the current block is the genesis. Yet the fast
@@ -392,6 +397,10 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 		hashMode := query.Origin.Hash != (common.Hash{})
 		first := true
 		maxNonCanonical := uint64(100)
+		maxHeaderFetch := downloader.MaxHeaderFetch
+		if pm.isMining() {
+			maxHeaderFetch = 1
+		}
 
 		// Gather headers until the fetch or network limits is reached
 		var (
@@ -399,7 +408,7 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 			headers []*types.Header
 			unknown bool
 		)
-		for !unknown && len(headers) < int(query.Amount) && bytes < softResponseLimit && len(headers) < downloader.MaxHeaderFetch {
+		for !unknown && len(headers) < int(query.Amount) && bytes < softResponseLimit && len(headers) < maxHeaderFetch {
 			// Retrieve the next header satisfying the query
 			var origin *types.Header
 			if hashMode {
@@ -529,13 +538,18 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 		if _, err := msgStream.List(); err != nil {
 			return err
 		}
+		maxBlockFetch := downloader.MaxBlockFetch
+		if pm.isMining() {
+			maxBlockFetch = 1
+		}
+
 		// Gather blocks until the fetch or network limits is reached
 		var (
 			hash   common.Hash
 			bytes  int
 			bodies []rlp.RawValue
 		)
-		for bytes < softResponseLimit && len(bodies) < downloader.MaxBlockFetch {
+		for bytes < softResponseLimit && len(bodies) < maxBlockFetch {
 			// Retrieve the hash of the next block
 			if err := msgStream.Decode(&hash); err == rlp.EOL {
 				break
@@ -582,13 +596,18 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 		if _, err := msgStream.List(); err != nil {
 			return err
 		}
+		maxStateFetch := downloader.MaxStateFetch
+		if pm.isMining() {
+			maxStateFetch = 1
+		}
+
 		// Gather state data until the fetch or network limits is reached
 		var (
 			hash  common.Hash
 			bytes int
 			data  [][]byte
 		)
-		for bytes < softResponseLimit && len(data) < downloader.MaxStateFetch {
+		for bytes < softResponseLimit && len(data) < maxStateFetch {
 			// Retrieve the hash of the next state entry
 			if err := msgStream.Decode(&hash); err == rlp.EOL {
 				break
@@ -620,13 +639,18 @@ func (pm *ProtocolManager) handleMsg(p *peer) error {
 		if _, err := msgStream.List(); err != nil {
 			return err
 		}
+		maxReceiptFetch := downloader.MaxReceiptFetch
+		if pm.isMining() {
+			maxReceiptFetch = 1
+		}
+
 		// Gather state data until the fetch or network limits is reached
 		var (
 			hash     common.Hash
 			bytes    int
 			receipts []rlp.RawValue
 		)
-		for bytes < softResponseLimit && len(receipts) < downloader.MaxReceiptFetch {
+		for bytes < softResponseLimit && len(receipts) < maxReceiptFetch {
 			// Retrieve the hash of the next block
 			if err := msgStream.Decode(&hash); err == rlp.EOL {
 				break
