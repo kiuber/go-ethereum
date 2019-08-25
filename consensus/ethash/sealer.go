@@ -208,6 +208,7 @@ func (ethash *Ethash) remote(notify []string, noverify bool) {
 	// new work to be processed.
 	notifyWork := func() {
 		work := currentWork
+		ethash.workFeed.Send(work)
 		blob, _ := json.Marshal(work)
 
 		for i, url := range notify {
