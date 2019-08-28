@@ -20,6 +20,7 @@ import (
 	"math/rand"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 )
@@ -35,7 +36,7 @@ func TestStrictTxListAdd(t *testing.T) {
 		txs[i] = transaction(uint64(i), 0, key)
 	}
 	// Insert the transactions in a random order
-	list := newTxList(true, func(_ int) {})
+	list := newTxList(true, common.Address{}, func(_ int, _ *txList) {})
 	for _, v := range rand.Perm(len(txs)) {
 		list.Add(txs[v], DefaultTxPoolConfig.PriceBump)
 	}
