@@ -229,6 +229,7 @@ type TxPool struct {
 
 	pending     map[common.Address]*txList   // All currently processable transactions
 	pendingSize int                          // Pending tx list size
+	spammers    map[*txList]bool             // Pending spamming tx list
 	queue       map[common.Address]*txList   // Queued but non-processable transactions
 	queueSize   int                          // Queue tx list size
 	beats       map[common.Address]time.Time // Last heartbeat from each known account
@@ -263,6 +264,7 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 		signer:          types.NewEIP155Signer(chainconfig.ChainID),
 		pending:         make(map[common.Address]*txList),
 		pendingSize:     0,
+		spammers:        make(map[*txList]bool),
 		queue:           make(map[common.Address]*txList),
 		queueSize:       0,
 		beats:           make(map[common.Address]time.Time),
@@ -636,7 +638,7 @@ func (pool *TxPool) enqueueTx(hash common.Hash, tx *types.Transaction) (bool, er
 	// Try to insert the transaction into the future queue
 	from, _ := types.Sender(pool.signer, tx) // already validated
 	if pool.queue[from] == nil {
-		pool.queue[from] = newTxList(false, func(changed int) {
+		pool.queue[from] = newTxList(false, from, func(changed int, _ *txList) {
 			pool.queueSize += changed
 		})
 	}
@@ -681,8 +683,13 @@ func (pool *TxPool) journalTx(from common.Address, tx *types.Transaction) {
 func (pool *TxPool) promoteTx(addr common.Address, hash common.Hash, tx *types.Transaction) bool {
 	// Try to insert the transaction into the pending queue
 	if pool.pending[addr] == nil {
-		pool.pending[addr] = newTxList(true, func(changed int) {
+		pool.pending[addr] = newTxList(true, addr, func(changed int, l *txList) {
 			pool.pendingSize += changed
+			if uint64(l.Len()) > pool.config.AccountSlots {
+				pool.spammers[l] = true
+			} else {
+				delete(pool.spammers, l)
+			}
 		})
 	}
 	list := pool.pending[addr]
@@ -1229,10 +1236,10 @@ func (pool *TxPool) truncatePending() {
 	pendingBeforeCap := pending
 	// Assemble a spam order to penalize large transactors first
 	spammers := prque.New(nil)
-	for addr, list := range pool.pending {
+	for list, _ := range pool.spammers {
 		// Only evict transactions from high rollers
-		if !pool.locals.contains(addr) && uint64(list.Len()) > pool.config.AccountSlots {
-			spammers.Push(addr, int64(list.Len()))
+		if !pool.locals.contains(list.sender) {
+			spammers.Push(list.sender, int64(list.Len()))
 		}
 	}
 	// Gradually drop transactions from offenders
