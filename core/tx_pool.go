@@ -224,11 +224,13 @@ type TxPool struct {
 	locals  *accountSet // Set of local transaction to exempt from eviction rules
 	journal *txJournal  // Journal of local transaction to back up to disk
 
-	pending map[common.Address]*txList   // All currently processable transactions
-	queue   map[common.Address]*txList   // Queued but non-processable transactions
-	beats   map[common.Address]time.Time // Last heartbeat from each known account
-	all     *txLookup                    // All transactions to allow lookups
-	priced  *txPricedList                // All transactions sorted by price
+	pending     map[common.Address]*txList   // All currently processable transactions
+	pendingSize int                          // Pending tx list size
+	queue       map[common.Address]*txList   // Queued but non-processable transactions
+	queueSize   int                          // Queue tx list size
+	beats       map[common.Address]time.Time // Last heartbeat from each known account
+	all         *txLookup                    // All transactions to allow lookups
+	priced      *txPricedList                // All transactions sorted by price
 
 	chainHeadCh     chan ChainHeadEvent
 	chainHeadSub    event.Subscription
@@ -257,7 +259,9 @@ func NewTxPool(config TxPoolConfig, chainconfig *params.ChainConfig, chain block
 		chain:           chain,
 		signer:          types.NewEIP155Signer(chainconfig.ChainID),
 		pending:         make(map[common.Address]*txList),
+		pendingSize:     0,
 		queue:           make(map[common.Address]*txList),
+		queueSize:       0,
 		beats:           make(map[common.Address]time.Time),
 		all:             newTxLookup(),
 		chainHeadCh:     make(chan ChainHeadEvent, chainHeadChanSize),
@@ -438,15 +442,7 @@ func (pool *TxPool) Stats() (int, int) {
 // stats retrieves the current pool stats, namely the number of pending and the
 // number of queued (non-executable) transactions.
 func (pool *TxPool) stats() (int, int) {
-	pending := 0
-	for _, list := range pool.pending {
-		pending += list.Len()
-	}
-	queued := 0
-	for _, list := range pool.queue {
-		queued += list.Len()
-	}
-	return pending, queued
+	return pool.pendingSize, pool.queueSize
 }
 
 // Content retrieves the data content of the transaction pool, returning all the
@@ -640,7 +636,9 @@ func (pool *TxPool) enqueueTx(hash common.Hash, tx *types.Transaction) (bool, er
 	// Try to insert the transaction into the future queue
 	from, _ := types.Sender(pool.signer, tx) // already validated
 	if pool.queue[from] == nil {
-		pool.queue[from] = newTxList(false)
+		pool.queue[from] = newTxList(false, func(changed int) {
+			pool.queueSize += changed
+		})
 	}
 	inserted, old := pool.queue[from].Add(tx, pool.config.PriceBump)
 	if !inserted {
@@ -683,7 +681,9 @@ func (pool *TxPool) journalTx(from common.Address, tx *types.Transaction) {
 func (pool *TxPool) promoteTx(addr common.Address, hash common.Hash, tx *types.Transaction) bool {
 	// Try to insert the transaction into the pending queue
 	if pool.pending[addr] == nil {
-		pool.pending[addr] = newTxList(true)
+		pool.pending[addr] = newTxList(true, func(changed int) {
+			pool.pendingSize += changed
+		})
 	}
 	list := pool.pending[addr]
 
@@ -1183,10 +1183,7 @@ func (pool *TxPool) promoteExecutables(accounts []common.Address) []*types.Trans
 // pending limit. The algorithm tries to reduce transaction counts by an approximately
 // equal number for all for accounts with many pending transactions.
 func (pool *TxPool) truncatePending() {
-	pending := uint64(0)
-	for _, list := range pool.pending {
-		pending += uint64(list.Len())
-	}
+	pending := uint64(pool.pendingSize)
 	if pending <= pool.config.GlobalSlots {
 		return
 	}
@@ -1268,10 +1265,7 @@ func (pool *TxPool) truncatePending() {
 
 // truncateQueue drops the oldes transactions in the queue if the pool is above the global queue limit.
 func (pool *TxPool) truncateQueue() {
-	queued := uint64(0)
-	for _, list := range pool.queue {
-		queued += uint64(list.Len())
-	}
+	queued := uint64(pool.queueSize)
 	if queued <= pool.config.GlobalQueue {
 		return
 	}
