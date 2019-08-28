@@ -215,7 +215,7 @@ func (m *txSortedMap) Flatten() types.Transactions {
 	return txs
 }
 
-type sizeChangedFn func(int)
+type sizeChangedFn func(int, *txList)
 
 // txList is a "list" of transactions belonging to an account, sorted by account
 // nonce. The same type can be used both for storing contiguous transactions for
@@ -228,16 +228,18 @@ type txList struct {
 	costcap *big.Int // Price of the highest costing transaction (reset only if exceeds balance)
 	gascap  uint64   // Gas limit of the highest spending transaction (reset only if exceeds block limit)
 
-	sizeChanged sizeChangedFn // Subscriber function will get called whenever the size changes
+	sender      common.Address // Sender address
+	sizeChanged sizeChangedFn  // Subscriber function will get called whenever the size changes
 }
 
 // newTxList create a new transaction list for maintaining nonce-indexable fast,
 // gapped, sortable transaction lists.
-func newTxList(strict bool, sizeChanged sizeChangedFn) *txList {
+func newTxList(strict bool, sender common.Address, sizeChanged sizeChangedFn) *txList {
 	return &txList{
 		strict:      strict,
 		txs:         newTxSortedMap(),
 		costcap:     new(big.Int),
+		sender:      sender,
 		sizeChanged: sizeChanged,
 	}
 }
@@ -274,7 +276,7 @@ func (l *txList) Add(tx *types.Transaction, priceBump uint64) (bool, *types.Tran
 		l.gascap = gas
 	}
 	if old == nil {
-		l.sizeChanged(1)
+		l.sizeChanged(1, l)
 	}
 	return true, old
 }
@@ -284,7 +286,7 @@ func (l *txList) Add(tx *types.Transaction, priceBump uint64) (bool, *types.Tran
 // maintenance.
 func (l *txList) Forward(threshold uint64) types.Transactions {
 	removed := l.txs.Forward(threshold)
-	l.sizeChanged(-len(removed))
+	l.sizeChanged(-len(removed), l)
 	return removed
 }
 
@@ -320,7 +322,7 @@ func (l *txList) Filter(costLimit *big.Int, gasLimit uint64) (types.Transactions
 		}
 		invalids = l.txs.Filter(func(tx *types.Transaction) bool { return tx.Nonce() > lowest })
 	}
-	l.sizeChanged(-(len(removed) + len(invalids)))
+	l.sizeChanged(-(len(removed) + len(invalids)), l)
 	return removed, invalids
 }
 
@@ -328,7 +330,7 @@ func (l *txList) Filter(costLimit *big.Int, gasLimit uint64) (types.Transactions
 // exceeding that limit.
 func (l *txList) Cap(threshold int) types.Transactions {
 	removed := l.txs.Cap(threshold)
-	l.sizeChanged(-len(removed))
+	l.sizeChanged(-len(removed), l)
 	return removed
 }
 
@@ -344,10 +346,10 @@ func (l *txList) Remove(tx *types.Transaction) (bool, types.Transactions) {
 	// In strict mode, filter out non-executable transactions
 	if l.strict {
 		invalids := l.txs.Filter(func(tx *types.Transaction) bool { return tx.Nonce() > nonce })
-		l.sizeChanged(-(1 + len(invalids)))
+		l.sizeChanged(-(1 + len(invalids)), l)
 		return true, invalids
 	}
-	l.sizeChanged(-1)
+	l.sizeChanged(-1, l)
 	return true, nil
 }
 
@@ -360,7 +362,7 @@ func (l *txList) Remove(tx *types.Transaction) (bool, types.Transactions) {
 // happen but better to be self correcting than failing!
 func (l *txList) Ready(start uint64) types.Transactions {
 	ready := l.txs.Ready(start)
-	l.sizeChanged(-len(ready))
+	l.sizeChanged(-len(ready), l)
 	return ready
 }
 
