@@ -23,6 +23,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rpc"
 )
 
@@ -50,6 +51,7 @@ func (api *API) GetWork() ([10]string, error) {
 	if api.ethash.remote == nil {
 		return [10]string{}, errors.New("not supported")
 	}
+	log.Info(">>>> [GetWork] client call eth-getwork to get job begin")
 
 	var (
 		workCh = make(chan [10]string, 1)
@@ -62,6 +64,7 @@ func (api *API) GetWork() ([10]string, error) {
 	}
 	select {
 	case work := <-workCh:
+		log.Info(">>>> [GetWork] client call eth-getwork to get job end <<<<")
 		return work, nil
 	case err := <-errc:
 		return [10]string{}, err
@@ -84,7 +87,9 @@ func (api *API) NewWorks(ctx context.Context) (*rpc.Subscription, error) {
 		for {
 			select {
 			case h := <-works:
+				log.Info(">>>> [NewWorks] call notify interface to send new work begin")
 				notifier.Notify(rpcSub.ID, h)
+				log.Info(">>>> [NewWorks] call notify interface to send new work end <<<<")
 			case <-rpcSub.Err():
 				worksSub.Unsubscribe()
 				return
@@ -119,11 +124,11 @@ func (api *API) SubmitWork(nonce types.BlockNonce, hash, digest common.Hash, ext
 	var blockHashCh = make(chan common.Hash, 1)
 	select {
 	case api.ethash.remote.submitWorkCh <- &mineResult{
-		nonce:     nonce,
-		mixDigest: digest,
-		hash:      hash,
+		nonce:       nonce,
+		mixDigest:   digest,
+		hash:        hash,
 		extraNonce:  extraNonce,
-		errc:      errc,
+		errc:        errc,
 		blockHashCh: blockHashCh,
 	}:
 	case <-api.ethash.remote.exitCh:
