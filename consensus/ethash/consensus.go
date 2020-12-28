@@ -643,3 +643,20 @@ func accumulateRewards(config *params.ChainConfig, state *state.StateDB, header 
 	}
 	state.AddBalance(header.Coinbase, reward)
 }
+
+func GetUncleInclusionRewardAndBlockReward(config *params.ChainConfig, header *types.Header, uncles []*types.Header) (*big.Int, *big.Int) {
+	blockReward := FrontierBlockReward
+	if config.IsByzantium(header.Number) {
+		blockReward = ByzantiumBlockReward
+	}
+	if config.IsConstantinople(header.Number) {
+		blockReward = ConstantinopleBlockReward
+	}
+	r := new(big.Int)
+	uncleInclusionReward := new(big.Int)
+	for range uncles {
+		r.Div(blockReward, big32)
+		uncleInclusionReward.Add(uncleInclusionReward, r)
+	}
+	return blockReward, uncleInclusionReward
+}

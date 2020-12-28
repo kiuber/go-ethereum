@@ -664,6 +664,16 @@ func (s *PublicBlockChainAPI) GetBlockByNumber(ctx context.Context, number rpc.B
 				response[field] = nil
 			}
 		}
+
+		feeReward, err := getBlockFeeReward(ctx, *s, *block)
+		blockReward, uncleInclusionReward := ethash.GetUncleInclusionRewardAndBlockReward(s.b.ChainConfig(), block.Header(), block.Uncles())
+
+		var reward = map[string]interface{}{}
+		reward["block_reward"] = weiToEther(blockReward)
+		reward["uncle_inclusion_reward"] = weiToEther(uncleInclusionReward)
+		reward["fee_reward"] = weiToEther(feeReward)
+
+		response["reward"] = reward
 		return response, err
 	}
 	return nil, err
@@ -1951,4 +1961,32 @@ func toHexSlice(b [][]byte) []string {
 		r[i] = hexutil.Encode(b[i])
 	}
 	return r
+}
+
+func getBlockFeeReward(ctx context.Context, s PublicBlockChainAPI, block types.Block) (*big.Int, error) {
+	blockFeeReward := big.NewInt(0)
+	for _, tx := range block.Transactions() {
+		feeReward := big.NewInt(0)
+		tx, blockHash, _, index, err := s.b.GetTransaction(ctx, tx.Hash())
+		if err != nil {
+			return blockFeeReward, err
+		}
+		receipts, err := s.b.GetReceipts(ctx, blockHash)
+		if err != nil {
+			return blockFeeReward, err
+		}
+		if len(receipts) <= int(index) {
+			return blockFeeReward, nil
+		}
+		receipt := receipts[index]
+		gasUsed := new(big.Int).SetUint64(receipt.GasUsed)
+		gasPrice := new(big.Int).Set(tx.GasPrice())
+		feeReward.Mul(gasUsed, gasPrice)
+		blockFeeReward.Add(blockFeeReward, feeReward)
+	}
+	return blockFeeReward, nil
+}
+
+func weiToEther(wei *big.Int) interface{} {
+	return new(big.Float).Quo(new(big.Float).SetInt(wei), big.NewFloat(params.Ether))
 }
