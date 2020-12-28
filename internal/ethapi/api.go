@@ -667,11 +667,15 @@ func (s *PublicBlockChainAPI) GetBlockByNumber(ctx context.Context, number rpc.B
 
 		feeReward, err := getBlockFeeReward(ctx, *s, *block)
 		blockReward, uncleInclusionReward := ethash.GetUncleInclusionRewardAndBlockReward(s.b.ChainConfig(), block.Header(), block.Uncles())
+		totalReward := new(big.Int)
+		totalReward = totalReward.Add(blockReward, uncleInclusionReward)
+		totalReward = totalReward.Add(totalReward, feeReward)
 
 		var reward = map[string]interface{}{}
 		reward["block_reward"] = weiToEther(blockReward)
 		reward["uncle_inclusion_reward"] = weiToEther(uncleInclusionReward)
 		reward["fee_reward"] = weiToEther(feeReward)
+		reward["total_reward"] = weiToEther(totalReward)
 
 		response["reward"] = reward
 		return response, err
